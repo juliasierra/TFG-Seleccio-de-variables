@@ -1,0 +1,217 @@
+---
+title: "model_nul_def"
+author: "Júlia Sierra"
+date: "2025-04-11"
+output: html_document
+---
+
+Per a poder simular les dades, carreguem la llibreria logistf i plantem una llavor per assegurar la reproductivitat dels nostres resultats. Això vol dir que les simulacions es generaran sempre igual si tornem a executar el codi.
+```{r}
+library(logistf)
+set.seed(123)
+```
+
+Defineim els paràmetres de simulació:
+- num_vars: nombre de variables explicatives.
+- iters: nombre d’iteracions (simulacions a realitzar).
+- comb: combinacions de grandària de mostra (N) i prevalença (pi).
+```{r}
+# Paràmetres
+num_vars <- 100
+num_vars2 <- num_vars/2
+iters <- 100
+iters_boot <- iters*2  
+
+comb <- list(
+  list(N = 1000, pi = 0.1),
+  list(N = 1000, pi = 0.3),
+  list(N = 5000, pi = 0.1),
+  list(N = 5000, pi = 0.3)
+) #4 combinacions de mida i prevalença
+```
+
+Per a poder veure a simple vista els falsos positius crearem una fucnió 'calcula_fp' que ens retornarà la suma dels coeficients amb p-valor<0.05, és a dir, els que són estadísticament significatius. En aquest cas, com que estem sota el model nul, on cap variable hauria de ser rellevant, si un coeficient és significatiu voldrà dir que és un fals positiu. 
+```{r}
+# Funció per calcular falsos positius
+# els F+ seran la suma dels coeficients amb p-valor < 0.05 en el cas del model nul
+# en el model penalitzat els coeficients s'obtenen amb una funció diferent (sino dona error)
+calcula_fp <- function(model, penalized = FALSE) {
+  if (penalized) {
+    pvals <- model$prob[-1] # Excloem l'intercept
+  } else {
+    coeficients <- summary(model)$coefficients
+    #pvals <- coeficients[-1, 4] # Excloem l'intercept
+    nvar <- nrow(coeficients)-1 #menys l'intercept (num de variables que queden en el model)
+  }
+  return(nvar) # Contem quants són significatius
+}
+```
+
+Creem les dades que s'utilitzaran en els models. Per a cada combinació de mida N i prevalença pi, generem:
+- una matriu X de variables explicatives (100 per observació, amb distribució normal estàndard) 
+- un vector Y amb valors binaris (0 o 1) generats segons una distribució binomial amb probabilitat pi. 
+Com que estem simulant dades sota el model nul, no hi ha cap relació real entre X i Y.
+```{r}
+X<- list()
+Y <- list()
+for (i in seq_along(comb)) {
+  N <- comb[[i]]$N
+  pi <- comb[[i]]$pi
+  X[[i]] <- list()
+  Y[[i]] <- list()
+  for (j in 1:iters){
+    X[[i]][[j]] <- matrix(rnorm(N * num_vars, mean=0, sd=1), ncol=num_vars)
+  Y[[i]][[j]] <- rbinom(N, 1, pi)
+  }
+}
+
+```
+
+dades boostrap
+```{r}
+X2<- list()
+Y2 <- list()
+for (i in seq_along(comb)) {
+  N <- comb[[i]]$N
+  pi <- comb[[i]]$pi
+  X2[[i]] <- list()
+  Y2[[i]] <- list()
+  for (j in 1:iters_boot){
+    X2[[i]][[j]] <- matrix(rnorm(N * num_vars2, mean=0, sd=1), ncol=num_vars2)
+  Y2[[i]][[j]] <- rbinom(N, 1, pi)
+  }
+}
+```
+
+
+
+# MÈTODES:
+## STEPWISE
+Apliquem el mètode clàssic de selecció stepwise per a veure quants falsos positius selecciona. 
+Es crea un model nul i un de complet, i es fa una cerca cap endavant i enrere per seleccionar les variables que milloren el model segons el criteri AIC. 
+A continuació, comptem quants dels coeficients seleccionats són estadísticament significatius (p-valor < 0.05) amb la funció 'calcula_fp', creada anteriorment. 
+Recordem que, sota el model nul, cap variable ho hauria de ser rellevant, pel que qualsevol significació és un fals positiu.
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes nul")
+load("resultats_fp.RData")
+print(resultats_fp)
+```
+En els 4 escenaris hem obtingut un nombre molt petit de falsos positius, el que ens indica que l'stepwise ha seleccionat les variables que realment són rellevants per a explicar la resposta. Hem de tindre en compte que, a causa de l'aleatorietat, els models poden seleccionar alguna variable puntual, pel que establirem un 5% de significació. Clarament, aquest nivell es compleix, al tindre, en mitjana, molt pocs falsos positius en els 4 escenaris. 
+
+## STEPWISE II
+Aquí es preparen els paquets necessaris per fer una selecció stepwise més eficient amb dades grans. 'bigstep' permet tractar models més ràpidament i amb menys memòria.
+```{r, eval=FALSE}
+install.packages('bigmemory')
+install.packages('biglm')
+install.packages('bigstep')
+```
+
+En aquest segon pas, repetim l’estratègia stepwise igual que abans, generem models nuls i complets, i comptem quantes vegades es seleccionen variables falsament (coeficients significatius sota un model nul). 
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes nul")
+load("resultats_fp_bigstep.RData")
+print(resultats_fp_bigstep)
+```
+ user   system  elapsed 
+13599.82   152.34 13892.12 
+
+Aquí tenim algun fals positiu més que en l'stepwise anterior, però tot i així segueixen estant dins del rang de valors acceptables per a dir que el mètode és vàlid. 
+
+## BOOTSTRAP
+Apliquem una estratègia de bootstrap per estimar quines variables són seleccionades consistentment. Per cada escenari:
+- Fem 100 repeticions de bootstrap,
+- En cada una, seleccionem una mostra aleatòria amb reemplaçament,
+- Ajustem un model stepwise i guardem quines variables han estat seleccionades,
+- Finalment, comptem quantes variables s’han seleccionat almenys un cop, considerant-les falsos positius.
+Això ens permet veure si els mètodes seleccionen variables per pura aleatorietat encara que no hi hagi cap relació real (ja que estem sota model nul). En aquest cas, com que s'han de fer tantes iteracions, es treballarà amb la meitat de variables degut al cost computacional. 
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes nul")
+load("resultats_fp_boot.RData")
+print(resultats_fp_boot)
+```
+    user    system   elapsed 
+14739.486   281.203 72482.788 
+
+## LASSO
+Provem el mètode LASSO, que penalitza la complexitat del model i fa una selecció automàtica posant a 0 els coeficients de les variables menys rellevants. En aquest cas, com que el model és nul, esperem que el nombre de coeficients diferents de zero sigui proper a 0. Si no és així, estarem observant falsos positius. 
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes nul")
+load("resultats_fp_lasso.RData")
+print(resultats_fp_lasso)
+#actualitzat
+```
+
+
+## ELASTIC NET 
+Aquí utilitzem Elastic Net, una combinació entre LASSO i Ridge (amb alpha = 0.5). 
+El procediment és similar: comptem quants coeficients són diferents de zero i, per tant, seleccionats com a falsos positius. Això ens serveix per comparar si Elastic Net és més o menys conservador que LASSO en detectar relacions espúries sota el model nul.
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes nul")
+load("resultats_fp_enet.RData")
+print(resultats_fp_enet)
+#actualitzat
+```
+En l'elastic net
+
+
+## RANDOM FOREST
+Apliquem Random Forest, un mètode d’arbres de decisió que pot estimar la importància de cada variable. Aquí es fa una selecció basada en el descens de l’impuresa (Gini), i es defineix una funció 'escoger_rf' per tallar la llista d’importàncies segons un canvi brusc. 
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes nul")
+load("resultats_fp_rf_randomForest.RData")
+print(resultats_fp_rf)
+#actualitzat
+```
+Aquí veiem bons resultats, ja que estan al voltant del 5% que hem establert d'aleatorietat. Veiem que en el cas on la prevalença és 0.3, els falsos positius augmenten lleugerament, però en el cas on pi=0.1 els resultats són força bons. 
+
+
+## BORUTA 
+Finalment, utilitzem Boruta, un mètode basat en Random Forest que compara la importància de cada variable amb la de variables fictícies (shadow). Si una variable és consistentment més important que les fictícies, es considera rellevant. Com que estem sota el model nul, esperem que cap variable real sigui més rellevant que les fictícies. Per tant, si Boruta selecciona variables, les comptem com a falsos positius.
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes nul")
+load("resultats_fp_boruta.RData")
+print(resultats_fp_boruta)
+```
+
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+df_all <- bind_rows(
+  format_results(resultats_stepwise, "stepwise"),
+  format_results(resultats_stepwiseII, "stepwiseII"),
+  format_results(resultats_bootstrap, "bootstrap"),
+  format_results(resultats_lasso, "lasso"),
+  format_results(resultats_enet, "elastic_net"),
+  format_results(resultats_rf, "random_forest"),
+  format_results(resultats_boruta, "boruta")
+)
+library(ggplot2)
+library(dplyr)
+
+summary_df <- df_all %>%
+  group_by(method, N, pi) %>%
+  summarise(mean_FP_percent = mean(FP_percent), .groups = 'drop') %>%
+  mutate(label = paste0("N=", N, ", pi=", pi))
+
+ggplot(summary_df, aes(x = label, y = mean_FP_percent, color = method)) +
+  geom_point(position = position_dodge(width = 0.7), size = 3) +
+  labs(
+    x = "Combinació N, pi",
+    y = "Mitjana FP_percent",
+    color = "Mètode",
+    title = "Mitjana de falsos positius per mètode i condició"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+
+
+
+
+
