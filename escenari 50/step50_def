@@ -1,0 +1,64 @@
+## STEPWISE II
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+library(bigmemory)
+library(biglm)
+library(bigstep)
+
+# Inicialitzem els resultats
+resultats_step50 <- data.frame(
+  N = integer(), pi = numeric(), iter = integer(),
+  Sensibilitat = numeric(), Especificitat = numeric(),
+  VPP = numeric(), VPN = numeric(), Accuracy = numeric(),
+  NetBenefit = numeric()
+)
+vars_seleccionades_step <- list()
+
+system.time({
+  for (i in seq_along(comb)) {
+    N <- comb[[i]]$N
+    pi <- comb[[i]]$pi
+    metrics <- list()
+    vars_selec_bin <- matrix(0, nrow = iters, ncol = 100) #creem matriu per emmagatzemar les variables seleccionades
+    for (j in 1:iters) {
+      print(paste("Escenari", i, "- Simulació", j))
+      # Seleccionem les dades
+      x_mat <- X[[i]][[j]]
+      colnames(x_mat) <- paste0("X", 1:ncol(x_mat))
+      y_vec <- Y[[i]][[j]]  # resposta binària amb prevalença pi
+      dades <- data.frame(y = y_vec, x_mat)
+      # Ajustem el model stepwise
+      model_null <- glm(y ~ 1, data = dades, family = binomial)
+      model_full <- glm(y ~ ., data = dades, family = binomial)
+      model_step <- step(model_null, scope = list(lower = model_null, upper = model_full),
+                         direction = "both", trace = 0)
+      # Mètriques
+      vars_seleccionades <- which(coefficients(model_step)[-1]!=0)
+      vars_selec_bin[j, vars_seleccionades] <- 1
+      metrics[[j]] <- metriques(vars_seleccionades)
+      
+      
+      
+    }
+    # Guardar resultats
+    resultats_step50 <- rbind(resultats_step50, data.frame(
+      N = N, pi = pi,
+      Sensibilitat = mean(sapply(metrics, function(x) x["sensibilitat"]), na.rm = TRUE),
+      Especificitat = mean(sapply(metrics, function(x) x["especificitat"]), na.rm = TRUE),
+      VPP = mean(sapply(metrics, function(x) x["VPP"]), na.rm = TRUE),
+      VPN = mean(sapply(metrics, function(x) x["VPN"]), na.rm = TRUE),
+      Accuracy = mean(sapply(metrics, function(x) x["accuracy"]), na.rm = TRUE),
+      NetBenefit = mean(sapply(metrics, function(x) x["net_benefit"]), na.rm = TRUE)
+    ))
+    vars_seleccionades_step[[i]] <- vars_selec_bin
+  }
+})
+
+print(resultats_step50)
+save(resultats_step50, vars_seleccionades_step, file = "resultats_step50.RData")
+#    user     system    elapsed 
+#103399.514   6613.858 112892.482 
+
+
+
+
+
