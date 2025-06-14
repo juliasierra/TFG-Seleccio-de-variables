@@ -1,0 +1,27 @@
+## MODEL BINOMIAL
+system.time({
+  for (i in seq_along(comb)) { # Itera per cada combinació
+    N <- comb[[i]]$N
+    pi <- comb[[i]]$pi
+    falsos_positius_bin <- numeric(iters)
+    
+    for (j in 1:iters) { # Executa el model 1000 vegades
+      print(paste("Escenari", i, "- Simulació", j))
+      X_sim <- X[[i]][[j]]
+      colnames(X_sim) <- paste0("X", 1:num_vars)
+      y_sim <- Y[[i]][[j]]
+      df <- data.frame(y = y_sim, X_sim)
+      
+      model_bin <- glm(y ~ ., data = df, family = "binomial")
+      falsos_positius_bin[j] <- calcula_fp(model_bin)
+    }
+    
+    mitjana_bin <- mean(falsos_positius_bin, na.rm = TRUE)
+    resultats_bin <- rbind(resultats_bin, data.frame(N, pi, FP = mitjana_bin))
+  }
+})
+# Mostrem els resultats
+print("Resultats Model Binomial")
+print(resultats_bin)
+setwd("~/Documents/uni/4t/TFG/models")
+save(resultats_bin, file = "resultats_bin.RData")
