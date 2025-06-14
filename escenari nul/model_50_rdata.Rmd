@@ -1,0 +1,266 @@
+---
+title: "model_50"
+author: "Júlia Sierra"
+date: "2025-05-12"
+output: html_document
+---
+
+Per a poder simular les dades, carreguem la llibreria logistf i plantem una llavor per assegurar la reproductivitat dels nostres resultats. Això vol dir que les simulacions es generaran sempre igual si tornem a executar el codi.
+```{r}
+library(logistf)
+set.seed(123)
+```
+
+Defineim els paràmetres de simulació:
+- num_vars: nombre de variables explicatives.
+- iters: nombre d’iteracions (simulacions a realitzar).
+- comb: combinacions de grandària de mostra (N) i prevalença (pi).
+```{r}
+# Paràmetres
+num_vars <- 100
+iters <- 100
+iters_boot <- iters*2
+num_vars2 <- num_vars/2
+
+comb <- list(
+  list(N = 1000, pi = 0.1),
+  list(N = 1000, pi = 0.3),
+  list(N = 5000, pi = 0.1),
+  list(N = 5000, pi = 0.3)
+) #4 combinacions de mida i prevalença
+```
+
+
+```{r}
+library(caret)
+metriques <- function(vars_seleccionades, p=0.5, nv) {
+  num_sig <- nv/2
+  real_labels <- c(rep(1, num_sig), rep(0, nv - num_sig)) #variables que s'haurien (o no) de seleccionar
+  pred_labels <- rep(0, nv)
+  pred_labels[vars_seleccionades] <- 1 #posem 1 en les variables que ha seleccionat el model
+  
+  # creem matriu de confusió
+  cm <- confusionMatrix(as.factor(pred_labels), as.factor(real_labels), positive = "1") 
+  TP <- cm$table[2, 2] 
+  FP <- cm$table[2, 1]
+  FN <- cm$table[1, 2]
+  TN <- cm$table[1, 1]
+  
+  # calculem mètriques
+  sensibilitat <- ifelse((TP + FN) == 0, NA, TP / (TP + FN))
+  especificitat <- ifelse((TN + FP) == 0, NA, TN / (TN + FP))
+  VPP <- ifelse((TP + FP) == 0, NA, TP / (TP + FP))
+  VPN <- ifelse((TN + FN) == 0, NA, TN / (TN + FN))
+  accuracy <- (TP + TN) / (TP + TN + FP + FN)
+  net_benefit <- (TP / nv) - (FP / nv) * (p / (1 - p))
+  
+  return(c(sensibilitat = sensibilitat,
+           especificitat = especificitat,
+           VPP = VPP,
+           VPN = VPN,
+           accuracy = accuracy,
+           net_benefit = net_benefit))
+}
+
+```
+
+Creem les dades que s'utilitzaran en els models. Per a cada combinació de mida N i prevalença pi, generem:
+- una matriu X de variables explicatives (100 per observació, amb distribució normal estàndard) 
+- un vector Y amb valors binaris (0 o 1) generats segons una distribució binomial amb probabilitat pi. 
+```{r}
+num_vars <- 100  # Suposem 100 variables en total
+num_sig <- num_vars/2  # Nombre de variables significatives
+
+X <- list() 
+Y <- list()  
+for (i in seq_along(comb)) {
+  N <- comb[[i]]$N
+  pi <- comb[[i]]$pi  
+  X[[i]] <- list()  # Inicialitzem com a llista
+  Y[[i]] <- list()
+   for (j in 1:iters){
+   X[[i]][[j]] <- matrix(rnorm(N * num_vars, mean=0, sd=1), ncol=num_vars)
+  beta <- c(rep(0.1, num_sig), rep(0, num_vars - num_sig)) #50 coef significatius i 50 nuls 
+  # Calculem logits
+  log_odds <- X[[i]][[j]] %*% beta
+  offset <- log(pi / (1 - pi)) - mean(log_odds) # Ajustem l'intercept per tenir una mitjana de probabilitat ~ pi_i
+  log_odds <- log_odds + offset
+  prob <- 1 / (1 + exp(-log_odds))
+  Y[[i]][[j]] <- rbinom(N, size = 1, prob = prob)
+   }
+}
+```
+
+dades boostrap
+```{r}
+iters_boot <- iters*2
+num_vars2 <- num_vars/2
+num_sig2 <- num_vars2/2  # Nombre de variables significatives
+X2<- list()
+Y2 <- list()
+for (i in seq_along(comb)) {
+  N <- comb[[i]]$N
+  pi <- comb[[i]]$pi
+  X2[[i]] <- list()
+  Y2[[i]] <- list()
+  for (j in 1:iters_boot){
+    X2[[i]][[j]] <- matrix(rnorm(N * num_vars2, mean=0, sd=1), ncol=num_vars2)
+  beta <- c(rep(0.1, num_sig2), rep(0, num_vars2 - num_sig2)) #50 coef significatius i 50 nuls 
+  # Calculem logits
+  log_odds <- X2[[i]][[j]] %*% beta
+  offset <- log(pi / (1 - pi)) - mean(log_odds) # Ajustem l'intercept per tenir una mitjana de probabilitat ~ pi_i
+  log_odds <- log_odds + offset
+  prob <- 1 / (1 + exp(-log_odds))
+  Y2[[i]][[j]] <- rbinom(N, size = 1, prob = prob)
+  }
+}
+```
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+num_cols_summary <- 5  # nombre de columnes X a mostrar
+
+# Recorrem cada combinació
+for (i in seq_along(X)) {
+  cat("\n---------------------------\n")
+  cat("Anàlisi per combinació i =", i, "\n")
+  
+  # Agrupem totes les iteracions d’aquesta combinació
+  X_comb <- do.call(rbind, X[[i]])
+  Y_comb <- unlist(Y[[i]])
+  
+  cat("Dimensions de X:", dim(X_comb), "\n")
+  
+  # --- Primeres columnes ---
+  X_first <- as.data.frame(X_comb[, 1:num_cols_summary])
+  cat("\nResum de les primeres", num_cols_summary, "variables:\n")
+  print(summary(X_first))
+  
+  # Proporció de classes de Y
+  cat("\nProporció de classes de Y:\n")
+  print(round(prop.table(table(Y_comb)), 3))
+  
+  # Preparar dades per boxplot (primeres variables)
+  X_first$Y <- as.factor(Y_comb)
+  X_long_first <- pivot_longer(X_first, cols = 1:num_cols_summary,
+                               names_to = "Variable", values_to = "Valor")
+  
+  p1 <- ggplot(X_long_first, aes(x = Variable, y = Valor, fill = Y)) +
+    geom_boxplot(outlier.size = 0.5) +
+    labs(title = paste("Boxplot de les primeres", num_cols_summary, "variables (combinació", i, ")")) +
+    theme_minimal()
+  print(p1)
+  
+  # --- Últimes columnes ---
+  last_cols_idx <- (ncol(X_comb) - num_cols_summary + 1):ncol(X_comb)
+  X_last <- as.data.frame(X_comb[, last_cols_idx])
+  cat("\nResum de les últimes", num_cols_summary, "variables:\n")
+  print(summary(X_last))
+  
+  # Preparar dades per boxplot (últimes variables)
+  X_last$Y <- as.factor(Y_comb)
+  colnames(X_last)[1:num_cols_summary] <- paste0("V", last_cols_idx)  # renombrar para claridad
+  X_long_last <- pivot_longer(X_last, cols = 1:num_cols_summary,
+                              names_to = "Variable", values_to = "Valor")
+  
+  p2 <- ggplot(X_long_last, aes(x = Variable, y = Valor, fill = Y)) +
+    geom_boxplot(outlier.size = 0.5) +
+    labs(title = paste("Boxplot de les últimes", num_cols_summary, "variables (combinació", i, ")")) +
+    theme_minimal()
+  print(p2)
+}
+
+```
+
+
+# MÈTODES:
+## STEPWISE
+Apliquem el mètode clàssic de selecció stepwise per a veure quants falsos positius selecciona. 
+Es crea un model nul i un de complet, i es fa una cerca cap endavant i enrere per seleccionar les variables que milloren el model segons el criteri AIC. 
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+load("step50_def.RData")
+print(resultats_stepII)
+
+```
+
+
+## STEPWISE II
+Aquí es preparen els paquets necessaris per fer una selecció stepwise més eficient amb dades grans. 'bigstep' permet tractar models més ràpidament i amb menys memòria.
+```{r, eval=FALSE}
+install.packages('bigmemory')
+install.packages('biglm')
+install.packages('bigstep')
+```
+
+
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+load("resultats_step50.RData")
+print(resultats_step50)
+```
+
+
+## BOOTSTRAP
+Apliquem una estratègia de bootstrap per estimar quines variables són seleccionades consistentment. Per cada escenari:
+- Fem 100 repeticions de bootstrap,
+- En cada una, seleccionem una mostra aleatòria amb reemplaçament,
+- Ajustem un model stepwise i guardem quines variables han estat seleccionades,
+
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+load("boot50_def.RData")
+print(resultats_boot50)
+```
+
+
+## LASSO
+
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+load("lasso50_def.RData")
+print(resultats_lasso)
+```
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+load("lasso50_v2.RData")
+print(resultats_lasso)
+```
+
+## ELASTIC NET 
+
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+load("resultats_enet_def.RData")
+print(resultats_enet)
+```
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+load("resultats_enet_v2.RData")
+print(resultats_enet)
+```
+
+## RANDOM FOREST
+
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+load("randomForest50_def.RData")
+print(resultats_rf)
+```
+ 
+
+## BORUTA 
+
+```{r}
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+load("resultats_boruta.RData")
+print(resultats_boruta)
+```
+
+
+
+
