@@ -1,0 +1,325 @@
+---
+title: "forestplot"
+author: "Júlia Sierra"
+date: "2025-06-11"
+output: html_document
+---
+
+```{r}
+library(caret)
+
+metriques2 <- function(pred_labels_bin, p = 0.5, nv) {
+  num_sig <- nv/2
+  real_labels <- c(rep(1, num_sig), rep(0, nv - num_sig))  # vector de referència
+  pred_labels <- pred_labels_bin  # ja és una fila binària 0/1
+  
+  # Matriu de confusió
+  cm <- confusionMatrix(as.factor(pred_labels), as.factor(real_labels), positive = "1")
+  TP <- cm$table[2, 2]
+  FP <- cm$table[2, 1]
+  FN <- cm$table[1, 2]
+  TN <- cm$table[1, 1]
+
+  # Mètriques
+  sensibilitat <- ifelse((TP + FN) == 0, NA, TP / (TP + FN))
+  especificitat <- ifelse((TN + FP) == 0, NA, TN / (TN + FP))
+  VPP <- ifelse((TP + FP) == 0, NA, TP / (TP + FP))
+  VPN <- ifelse((TN + FN) == 0, NA, TN / (TN + FN))
+  accuracy <- (TP + TN) / (TP + TN + FP + FN)
+  net_benefit <- (TP / nv) - (FP / nv) * (p / (1 - p))
+
+  return(c(sensibilitat = sensibilitat,
+           especificitat = especificitat,
+           VPP = VPP,
+           VPN = VPN,
+           accuracy = accuracy,
+           net_benefit = net_benefit))
+}
+
+```
+
+
+# STEPWISE
+```{r}
+metriques_step <- list()  # Llista final amb les 4 matrius
+
+for (i in seq_along(comb)) {
+  metrics <- matrix(0, nrow = iters, ncol = 6)  # 6 mètriques: sensibilitat, especificitat, VPP, VPN, accuracy, net_benefit
+  for (j in 1:iters) {
+    metrics[j, ] <- metriques2(vars_seleccionades_step[[i]][j, ], nv=num_vars)
+  }
+  colnames(metrics) <- c("sensibilitat", "especificitat", "VPP", "VPN", "accuracy", "net_benefit")
+  metriques_step[[i]] <- metrics
+}
+
+```
+
+# BOOTSTRAP
+```{r}
+metriques_boot <- list()  # Llista final amb les 4 matrius
+
+for (i in seq_along(comb)) {
+  metrics <- matrix(0, nrow = iters_boot, ncol = 6)  # 6 mètriques: sensibilitat, especificitat, VPP, VPN, accuracy, net_benefit
+  for (j in 1:iters_boot) {
+    metrics[j, ] <- metriques2(vars_seleccionades_boot[[i]][j, ], nv=num_vars2)
+  }
+  colnames(metrics) <- c("sensibilitat", "especificitat", "VPP", "VPN", "accuracy", "net_benefit")
+  metriques_boot[[i]] <- metrics
+}
+
+```
+
+# LASSO
+```{r, warning=F}
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+#load("lasso50_def.RData")
+#print(resultats_lasso)
+load("lasso50_v2.RData")
+print(resultats_lasso)
+
+metriques_lasso <- list()  # Llista final amb les 4 matrius
+
+for (i in seq_along(comb)) {
+  metrics <- matrix(0, nrow = iters, ncol = 6)  # 6 mètriques: sensibilitat, especificitat, VPP, VPN, accuracy, net_benefit
+  for (j in 1:iters) {
+    metrics[j, ] <- metriques2(vars_seleccionades_lasso[[i]][j, ], nv=num_vars)
+  }
+  colnames(metrics) <- c("sensibilitat", "especificitat", "VPP", "VPN", "accuracy", "net_benefit")
+  metriques_lasso[[i]] <- metrics
+}
+
+```
+
+# ENET
+```{r , warning=F}
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+#load("resultats_enet_def.RData")
+#print(resultats_enet)
+load("resultats_enet_v2.RData")
+print(resultats_enet)
+
+metriques_enet <- list()  # Llista final amb les 4 matrius
+
+for (i in seq_along(comb)) {
+  metrics <- matrix(0, nrow = iters, ncol = 6)  # 6 mètriques: sensibilitat, especificitat, VPP, VPN, accuracy, net_benefit
+  for (j in 1:iters) {
+    metrics[j, ] <- metriques2(vars_seleccionades_enet[[i]][j, ], nv=num_vars)
+  }
+  colnames(metrics) <- c("sensibilitat", "especificitat", "VPP", "VPN", "accuracy", "net_benefit")
+  metriques_enet[[i]] <- metrics
+}
+```
+
+# RANDOM FOREST
+```{r , warning=F}
+metriques_rf <- list()  # Llista final amb les 4 matrius
+
+for (i in seq_along(comb)) {
+  metrics <- matrix(0, nrow = iters, ncol = 6)  # 6 mètriques: sensibilitat, especificitat, VPP, VPN, accuracy, net_benefit
+  for (j in 1:iters) {
+    metrics[j, ] <- metriques2(vars_seleccionades_rf[[i]][j, ], nv=num_vars)
+  }
+  colnames(metrics) <- c("sensibilitat", "especificitat", "VPP", "VPN", "accuracy", "net_benefit")
+  metriques_rf[[i]] <- metrics
+}
+```
+# BORUTA
+```{r , warning=F}
+metriques_boruta <- list()  # Llista final amb les 4 matrius
+
+for (i in seq_along(comb)) {
+  metrics <- matrix(0, nrow = iters, ncol = 6)  # 6 mètriques: sensibilitat, especificitat, VPP, VPN, accuracy, net_benefit
+  for (j in 1:iters) {
+    metrics[j, ] <- metriques2(vars_seleccionades_boruta[[i]][j, ], nv=num_vars)
+  }
+  colnames(metrics) <- c("sensibilitat", "especificitat", "VPP", "VPN", "accuracy", "net_benefit")
+  metriques_boruta[[i]] <- metrics
+}
+```
+
+```{r}
+resum_metriques_long <- function(metriques_llista, nom_metode = "Stepwise") {
+  resultats <- data.frame()
+
+  for (i in seq_along(metriques_llista)) {
+    matriu <- metriques_llista[[i]]
+    df <- as.data.frame(matriu)
+
+    for (metrica in colnames(df)) {
+      valors <- df[[metrica]]
+      resum <- data.frame(
+        metode = nom_metode,
+        metrica = metrica,
+        N = comb[[i]]$N,
+        pi = comb[[i]]$pi,
+        mean = mean(valors, na.rm = TRUE),
+        lower = quantile(valors, 0.025, na.rm = TRUE),
+        upper = quantile(valors, 0.975, na.rm = TRUE)
+      )
+      resultats <- rbind(resultats, resum)
+    }
+  }
+
+  return(resultats)
+}
+
+
+```
+
+```{r}
+summary_step     <- resum_metriques_long(metriques_step, "Stepwise")
+summary_boot     <- resum_metriques_long(metriques_boot, "Bootstrap")
+summary_lasso    <- resum_metriques_long(metriques_lasso, "Lasso")
+summary_enet     <- resum_metriques_long(metriques_enet, "Elastic Net")
+summary_rf       <- resum_metriques_long(metriques_rf, "Random Forest")
+summary_boruta   <- resum_metriques_long(metriques_boruta, "Boruta")
+
+# Unió de tots els mètodes
+summary_total <- bind_rows(
+  summary_step, summary_boot, summary_lasso,
+  summary_enet, summary_rf, summary_boruta
+)
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Funció per crear forest plot d'una mètrica
+forest_plot_metric <- function(data, metrica_seleccionada = "sensibilitat") {
+  
+  # Filtrar la mètrica d'interès
+  df_plot <- data %>%
+    filter(metrica == metrica_seleccionada)
+  
+  # Ordenar mètodes segons la mitjana de l'escenari base (N = 1000, pi = 0.1)
+  ordre_metodes <- df_plot %>%
+    filter(N == 1000, pi == 0.1) %>%
+    arrange(desc(mean)) %>%
+    pull(metode)
+  
+  df_plot$metode <- factor(df_plot$metode, levels = ordre_metodes)
+  
+  # Configuració línia i color
+  df_plot <- df_plot %>%
+  mutate(
+    linetype = ifelse(N == 1000, "solid", "dashed"),
+    color = ifelse(pi == 0.1, "vermell", "blau"),
+    linetype = factor(linetype, levels = c("solid", "dashed")),  # <- ordre explícit
+    color = factor(color, levels = c("vermell", "blau"))          # <- ordre explícit
+  )
+
+  # Forest plot
+  ggplot(df_plot, aes(x = mean, y = metode, color = color, linetype = linetype)) +
+    geom_point(position = position_dodge(width = 0.5), size = 2) +
+    geom_errorbarh(aes(xmin = lower, xmax = upper), height = 0.2, 
+                   position = position_dodge(width = 0.5)) +
+    labs(
+      x = metrica_seleccionada,
+      y = "Mètode",
+      title = paste("Forest plot per a", metrica_seleccionada),
+      color = "Prevalença",
+      linetype = "Mida mostra"
+    ) +
+    scale_color_manual(values = c("vermell" = "red", "blau" = "skyblue"),
+                       labels = c("pi = 0.1", "pi = 0.3")) +
+    scale_linetype_manual(values = c("solid" = "solid", "dashed" = "dashed"),
+                          labels = c("N = 1000", "N = 5000")) +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+}
+
+```
+
+```{r}
+# Llista de mètriques a visualitzar
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def/plots")
+metriques <- c("sensibilitat", "especificitat", "VPP", "VPN", "accuracy", "net_benefit")
+
+# Generar els forest plots per cada mètrica
+plots <- lapply(seq_along(metriques), function(i) {
+  m <- metriques[[i]]
+  plot <- forest_plot_metric(summary_total, metrica_seleccionada = m)
+  nom_fitxer <- paste0("forestplot_", m, ".png")
+  ggsave(filename = nom_fitxer, plot = plot, width = 10, height = 6, dpi = 300, bg="white")
+  return(plot)
+})
+
+# Mostrar tots els plots (1 per 1 si no fas servir patchwork o similar)
+for (p in plots) print(p)
+```
+
+
+# LASSO I ENET
+
+# LASSO
+```{r, warning=F}
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+load("lasso50_v2.RData")
+print(resultats_lasso)
+
+metriques_lasso2 <- list()  # Llista final amb les 4 matrius
+
+for (i in seq_along(comb)) {
+  metrics <- matrix(0, nrow = iters, ncol = 6)  # 6 mètriques: sensibilitat, especificitat, VPP, VPN, accuracy, net_benefit
+  for (j in 1:iters) {
+    metrics[j, ] <- metriques2(vars_seleccionades_lasso[[i]][j, ], nv=num_vars)
+  }
+  colnames(metrics) <- c("sensibilitat", "especificitat", "VPP", "VPN", "accuracy", "net_benefit")
+  metriques_lasso2[[i]] <- metrics
+}
+
+```
+
+# ENET
+```{r , warning=F}
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def")
+load("resultats_enet_v2.RData")
+print(resultats_enet)
+
+metriques_enet2 <- list()  # Llista final amb les 4 matrius
+
+for (i in seq_along(comb)) {
+  metrics <- matrix(0, nrow = iters, ncol = 6)  # 6 mètriques: sensibilitat, especificitat, VPP, VPN, accuracy, net_benefit
+  for (j in 1:iters) {
+    metrics[j, ] <- metriques2(vars_seleccionades_enet[[i]][j, ], nv=num_vars)
+  }
+  colnames(metrics) <- c("sensibilitat", "especificitat", "VPP", "VPN", "accuracy", "net_benefit")
+  metriques_enet2[[i]] <- metrics
+}
+```
+
+```{r}
+summary_lasso    <- resum_metriques_long(metriques_lasso, "Lasso")
+summary_enet     <- resum_metriques_long(metriques_enet, "Elastic Net")
+summary_lasso2    <- resum_metriques_long(metriques_lasso2, "Lasso 2")
+summary_enet2    <- resum_metriques_long(metriques_enet2, "Elastic Net 2")
+
+# Unió de tots els mètodes
+summary_total2 <- bind_rows(
+   summary_lasso,summary_lasso2,
+  summary_enet, summary_enet2
+)
+
+```
+
+
+
+```{r}
+# Llista de mètriques a visualitzar
+setwd("~/Documents/uni/4t/TFG/metodes 50/metodes50_def/plots")
+metriques <- c("sensibilitat", "especificitat", "VPP", "VPN", "accuracy", "net_benefit")
+
+# Generar els forest plots per cada mètrica
+plots <- lapply(seq_along(metriques), function(i) {
+  m <- metriques[[i]]
+  plot <- forest_plot_metric(summary_total2, metrica_seleccionada = m)
+  nom_fitxer <- paste0("forestplot2_", m, ".png")
+  ggsave(filename = nom_fitxer, plot = plot, width = 10, height = 6, dpi = 300, bg="white")
+  return(plot)
+})
+
+# Mostrar tots els plots (1 per 1 si no fas servir patchwork o similar)
+for (p in plots) print(p)
+```
