@@ -1,0 +1,33 @@
+## STEPWISE 
+setwd("~/Documents/uni/4t/TFG/metodes nul")
+resultats_fp <- data.frame(N = integer(), pi = numeric(), FP = numeric() , FP_percent=numeric())
+
+
+
+system.time({
+for (i in seq_along(comb)) {
+  N <- comb[[i]]$N
+  pi <- comb[[i]]$pi
+  fp_stepwise <- numeric(iters)
+  
+  for (j in 1:iters) {
+    print(paste("Escenari", i, "- Simulació", j))
+    # Preparem dades
+    X_sub <- X[[i]][[j]] # seleccionem la comb i i la iteració j
+    Y_bin <- Y[[i]][[j]] 
+    dades <- data.frame(Y = Y_bin, X_sub)
+    # Ajustem models nul i complet
+    nulmodel <- glm(Y ~ 1, data = dades, family = binomial)
+    fullmodel <- glm(Y ~ ., data = dades, family = binomial)
+    # Stepwise
+    stepmodel <- step(nulmodel, scope = list(lower = nulmodel, upper = fullmodel), 
+                      direction = "both", trace = 0)
+    # Falsos positius
+    fp_stepwise[j] <- calcula_fp(stepmodel, penalized = FALSE)
+  }
+  
+  resultats_fp <- rbind(resultats_fp, data.frame(N = N, pi = pi, FP = mean(fp_stepwise), FP_percent=mean(fp_stepwise)/num_vars))
+}
+})
+print(resultats_fp)
+save(resultats_fp, file = "resultats_fp.RData")
